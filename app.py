@@ -1,56 +1,97 @@
 import gradio as gr
+from flask import Flask
+import openai
+import os
 import re
 from langgraph_models.financial_advisor import get_financial_advice
 from langgraph_models.career_counsellor import get_career_advice
 from langgraph_models.leadership_skills import get_leadership_advice
+from dotenv import load_dotenv
 
-# Updated chatbot_mode function to prevent auto-response
-def chatbot_mode(selected_mode, user_input):
+load_dotenv()  # Load the API key from the .env file
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Define chatbot_mode function for Gradio to interact with
+def chatbot_mode(selected_mode, user_input, history):
     user_input_lower = user_input.strip().lower()
 
     # Detect simple greetings based on input patterns
     if len(user_input_lower.split()) < 3 and not re.search(r"[?!.]", user_input_lower):
-        # If it's short and lacks punctuation like a question or exclamation, it may be a greeting
-        return "Hello! How can I assist you today?"
+        return "Hello! How can I assist you today?", history
 
     if not user_input:  # Check if user_input is empty
-        return ""  # No response if input is empty
+        return "", history  # No response if input is empty
 
-    # Process the input based on the selected mode
+    # Append user input to the history for persistence
+    history.append(f"User: {user_input}")
+
+    # Add system instructions for context
     if selected_mode == "Financial Advisor":
-        return get_financial_advice(user_input)
+        history.append("System: You are a financial advisor for children.")
     elif selected_mode == "Career Counsellor":
-        return get_career_advice(user_input)
+        history.append("System: You are a career counselor for children.")
     elif selected_mode == "Leadership Skills":
-        return get_leadership_advice(user_input)
-    else:
-        return "Invalid mode selected."
+        history.append("System: You are a leadership coach for children.")
 
-# Gradio interface logic
-with gr.Blocks() as demo:
-    gr.Markdown("### Orphanage Chatbot")
-    
-    # Dropdown to select the mode
-    mode_selector = gr.Dropdown(
-        choices=["Financial Advisor", "Career Counsellor", "Leadership Skills"],
-        label="Select Mode"
-    )
-    
-    # Textbox for user input
-    user_input = gr.Textbox(label="Your Question")
-    
-    # Output textbox with increased size (height) for better visibility
-    output = gr.Textbox(label="Chatbot Response", interactive=False, lines=5)  # Adjusted output size
-    
-    # Add a button to submit the user input
-    submit_button = gr.Button("Submit Question")
+    messages = [{"role": "system", "content": history[-1]}] + [{"role": "user", "content": user_input}]
+    response = ""
 
-    # Call chatbot_mode when dropdown or input changes
-    submit_button.click(
-        chatbot_mode, 
-        inputs=[mode_selector, user_input], 
-        outputs=output
-    )
+    try:
+        # OpenAI API call with streaming enabled
+        for chunk in openai.ChatCompletion.create(
+            model="gpt-4o-mini",  # Use GPT-4o-mini
+            messages=messages,
+            temperature=0.7,
+            max_tokens=300,
+            stream=True  # Enable streaming
+        ):
+            # Extract content from the 'delta' field of the stream response
+            if 'choices' in chunk:
+                content = chunk['choices'][0].get('delta', {}).get('content', '')
+                response += content
+                yield response  # Stream response incrementally
 
-# Launch the Gradio app
-demo.launch()
+    except Exception as e:
+        print(f"Error during streaming: {e}")
+        return "An error occurred while generating the response.", history
+
+    # Append model response to history
+    history.append(f"Assistant: {response}")
+    return response, history  # Return both response and updated history
+
+# Create Gradio interface function
+def create_gradio_interface():
+    with gr.Blocks() as demo:
+        gr.Markdown("### Orphanage Chatbot")
+
+        mode_selector = gr.Dropdown(
+            choices=["Financial Advisor", "Career Counsellor", "Leadership Skills"],
+            label="Select Mode"
+        )
+
+        user_input = gr.Textbox(label="Your Question", placeholder="Type your question here...")
+        output = gr.Textbox(label="Chatbot Response", interactive=False, lines=5)  # Adjusted output size
+        submit_button = gr.Button("Submit Question")
+
+        state = gr.State([])  # Store conversation history
+
+        submit_button.click(
+            chatbot_mode,
+            inputs=[mode_selector, user_input, state],
+            outputs=[output, state],
+        )
+
+    return demo
+
+# Flask route for the Gradio app
+@app.route("/")
+def home():
+    demo = create_gradio_interface()  # Create the Gradio interface
+    return demo.launch(share=False, inline=True)  # Launch Gradio with Flask properly
+
+# Run Flask app
+if __name__ == "__main__":
+    app.run(debug=True, host='0.0.0.0', port=5000)  # Make Flask listen on all available network interfaces
