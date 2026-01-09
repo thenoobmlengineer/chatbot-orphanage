@@ -1,5 +1,4 @@
 import gradio as gr
-from flask import Flask
 import openai
 import os
 import re
@@ -10,9 +9,6 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load the API key from the .env file
 openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Initialize Flask app
-app = Flask(__name__)
 
 # Define chatbot_mode function for Gradio to interact with
 def chatbot_mode(selected_mode, user_input, history):
@@ -86,12 +82,6 @@ def create_gradio_interface():
 
     return demo
 
-# Flask route for the Gradio app
-@app.route("/")
-def home():
-    demo = create_gradio_interface()  # Create the Gradio interface
-    return demo.launch(share=False, inline=True)  # Launch Gradio with Flask properly
-
-# Run Flask app
-if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000)  # Make Flask listen on all available network interfaces
+# Launch Gradio interface directly without Flask
+demo = create_gradio_interface()
+demo.launch(share=True)  # This will make the app publicly accessible if needed
