@@ -1,0 +1,9 @@
+# Ignore Python virtual environment
+chatbot-env/
+
+# Ignore .env file containing sensitive data (API keys)
+.env
+
+# Ignore compiled Python files
+*.pyc
+__pycache__/
